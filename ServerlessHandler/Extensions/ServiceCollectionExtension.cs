@@ -7,13 +7,13 @@ namespace ServerlessHandler.Extensions
 {
     public static class ServiceCollectionExtension
     {
-        public static IServiceCollection AddHttpHandler(this IServiceCollection services, Type functionApp)
+        public static IServiceCollection AddServerlessHandler(this IServiceCollection services, Type functionApp)
         {
             var handlers = functionApp.Assembly
                 .GetTypes()
                 .Where(handler 
-                    => typeof(IHttpHandler).IsAssignableFrom(handler) 
-                    && handler != typeof(IHttpHandler) 
+                    => typeof(IHandler).IsAssignableFrom(handler) 
+                    && handler != typeof(IHandler) 
                     && !handler.IsInterface 
                     && !handler.IsAbstract);
             

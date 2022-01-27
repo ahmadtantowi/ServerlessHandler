@@ -6,7 +6,7 @@ using Microsoft.AspNetCore.Mvc;
 
 namespace ServerlessHandler.Abstractions
 {
-    public interface IHttpHandler<TResult>
+    public interface IHttpHandler<TResult> : IHandler
     {
         Task<TResult> Execute(HttpRequest request, CancellationToken cancellationToken = default, params KeyValuePair<string, object>[] keyValues);
     }
