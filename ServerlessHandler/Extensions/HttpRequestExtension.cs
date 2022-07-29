@@ -1,42 +1,65 @@
 using System;
 using System.Collections;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.ComponentModel;
+using System.Globalization;
 using System.Linq;
-using System.Threading.Tasks;
+using System.Reflection;
 using Microsoft.AspNetCore.Http;
 
 namespace ServerlessHandler.Extensions
 {
     public static class HttpRequestExtension
     {
+        private static readonly ConcurrentDictionary<string, PropertyInfo[]> _cachedProperties = new ConcurrentDictionary<string, PropertyInfo[]>();
+        private static readonly ConcurrentDictionary<string, CultureInfo> _cachedCultureInfos = new ConcurrentDictionary<string, CultureInfo>();
+
         public static TModel GetParams<TModel>(this HttpRequest request) where TModel : class, new()
         {
             var param = new TModel();
+            var modelName = typeof(TModel).FullName ?? typeof(TModel).Name;
 
-            foreach (var propInfo in typeof(TModel).GetProperties())
+            // cache model properties
+            _cachedProperties.TryAdd(modelName, typeof(TModel).GetProperties());
+
+            foreach (var propInfo in _cachedProperties[modelName])
             {
-                var propType = Nullable.GetUnderlyingType(propInfo.PropertyType) ?? propInfo.PropertyType;
-
-                if (request.Query.TryGetValue(propInfo.Name, out var valString) && !valString.Any(x => string.IsNullOrEmpty(x)))
+                if (request.Query.TryGetValue(propInfo.Name, out var valString) && !string.IsNullOrEmpty(valString.FirstOrDefault()))
                 {
-                    var valType = default(object);
-                    
+                    object? valType;
+                    var propType = Nullable.GetUnderlyingType(propInfo.PropertyType) ?? propInfo.PropertyType;
+
                     if (propType.IsEnum)
                     {
-                        Enum.TryParse(propType, valString.ToString(), true, out valType);
+                        Enum.TryParse(propType, valString.First(), true, out valType);
+                    }
+                    else if (typeof(DateTime).IsAssignableFrom(propType))
+                    {
+                        var acceptLanguage = request.GetAcceptLanguages().FirstOrDefault();
+                        if (acceptLanguage != null)
+                            _cachedCultureInfos.TryAdd(acceptLanguage, new CultureInfo(acceptLanguage));
+                        
+                        valType = acceptLanguage is null
+                            ? DateTime.Parse(valString.First())
+                            : DateTime.Parse(valString.First(), _cachedCultureInfos[acceptLanguage]);
                     }
                     else if (propType != typeof(string) && typeof(IEnumerable).IsAssignableFrom(propType))
                     {
                         var collectionInstance = Activator.CreateInstance(typeof(List<>).MakeGenericType(propType.GenericTypeArguments[0])) as IList;
+                        var typeConverter = TypeDescriptor.GetConverter(propType.GenericTypeArguments[0]);
                         
-                        foreach (var item in valString.ToString().Split(','))
-                            collectionInstance!.Add(Convert.ChangeType(item, propType.GenericTypeArguments[0]));
+                        foreach (var item in valString.First().Split(','))
+                        {
+                            var value = typeConverter.ConvertFromString(item);
+                            collectionInstance!.Add(value);
+                        }
                         
                         valType = collectionInstance;
                     }
                     else
                     {
-                        valType = Convert.ChangeType(valString.ToString(), propType);
+                        valType = TypeDescriptor.GetConverter(propType).ConvertFromString(valString.First());
                     }
                     
                     propInfo.SetValue(param, valType);
@@ -44,6 +67,15 @@ namespace ServerlessHandler.Extensions
             }
 
             return param;
+        }
+
+        public static string[] GetAcceptLanguages(this HttpRequest request)
+        {
+            return request.GetTypedHeaders()
+                .AcceptLanguage?
+                .OrderByDescending(x => x.Quality ?? 1)
+                .Select(x => x.Value.ToString())
+                .ToArray() ?? Array.Empty<string>();
         }
     }
 }
