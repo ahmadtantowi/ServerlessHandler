@@ -36,13 +36,7 @@ namespace ServerlessHandler.Extensions
                     }
                     else if (typeof(DateTime).IsAssignableFrom(propType))
                     {
-                        var acceptLanguage = request.GetAcceptLanguages().FirstOrDefault();
-                        if (acceptLanguage != null)
-                            _cachedCultureInfos.TryAdd(acceptLanguage, new CultureInfo(acceptLanguage));
-                        
-                        valType = acceptLanguage is null
-                            ? DateTime.Parse(valString.First())
-                            : DateTime.Parse(valString.First(), _cachedCultureInfos[acceptLanguage]);
+                        valType = ConvertToDateTime(valString.First());
                     }
                     else if (propType != typeof(string) && typeof(IEnumerable).IsAssignableFrom(propType))
                     {
@@ -51,7 +45,9 @@ namespace ServerlessHandler.Extensions
                         
                         foreach (var item in valString.First().Split(','))
                         {
-                            var value = typeConverter.ConvertFromString(item);
+                            var value = typeof(DateTime).IsAssignableFrom(propType.GenericTypeArguments[0])
+                                ? ConvertToDateTime(item)
+                                : typeConverter.ConvertFromString(item);
                             collectionInstance!.Add(value);
                         }
                         
@@ -64,6 +60,17 @@ namespace ServerlessHandler.Extensions
                     
                     propInfo.SetValue(param, valType);
                 }
+            }
+
+            DateTime ConvertToDateTime(string value)
+            {
+                var acceptLanguage = request.GetAcceptLanguages().FirstOrDefault();
+                if (acceptLanguage != null)
+                    _cachedCultureInfos.TryAdd(acceptLanguage, new CultureInfo(acceptLanguage));
+                
+                return acceptLanguage is null
+                    ? DateTime.Parse(value)
+                    : DateTime.Parse(value, _cachedCultureInfos[acceptLanguage]);
             }
 
             return param;
